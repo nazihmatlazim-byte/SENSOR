@@ -1,0 +1,286 @@
+#include <Wire.h>
+#include <MAX30100_PulseOximeter.h>
+#include <Adafruit_MLX90614.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <UniversalTelegramBot.h>
+#include <HTTPClient.h>
+#include <ESPAsyncWebServer.h>
+AsyncWebServer server(80);
+float skinTemp = 0;
+float heartRate = 0; 
+float spo2 = 0;
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define REPORTING_PERIOD_MS 3000  // 3 seconds
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Medical Dashboard</title>
+
+<style>
+body {
+  font-family: Arial;
+  background: #0f172a;
+  color: white;
+  text-align: center;
+}
+
+.card {
+  background: #1e293b;
+  margin: 10px;
+  padding: 15px;
+  border-radius: 12px;
+}
+
+.value {
+  font-size: 28px;
+  font-weight: bold;
+  color: #38bdf8;
+}
+</style>
+
+</head>
+
+<body>
+
+<h2>🩺 ESP32 Medical Dashboard</h2>
+
+<div class="card">
+  🌡 Temperature<br>
+  <span class="value" id="temp">--</span> °C
+</div>
+
+<div class="card">
+  💓 Heart Rate<br>
+  <span class="value" id="heart">--</span> bpm
+</div>
+
+<div class="card">
+  🫁 SpO2<br>
+  <span class="value" id="spo2">--</span> %
+</div>
+
+<script>
+setInterval(() => {
+  fetch("/data")
+    .then(res => res.json())
+    .then(data => {
+      document.getElementById("temp").innerText = data.temperature;
+      document.getElementById("heart").innerText = data.heart;
+      document.getElementById("spo2").innerText = data.spo2;
+    });
+}, 2000);
+</script>
+
+</body>
+</html>
+)rawliteral";
+
+// --- Sensors ---
+PulseOximeter pox;
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+
+// --- Timing ---
+uint32_t lastReportTime = 0;
+
+// --- WiFi credentials ---
+const char* ssid = "Nazih";
+const char* password = "Nazih123";
+const char* serverName = "http://172.24.173.205:1880/data";
+
+// --- Telegram bot ---
+#define BOT_TOKEN "8297160184:AAGp51dM91cc2SSgKz9OK1NOdDqgGxmE19w"
+#define CHAT_ID "-5055229916"
+
+
+
+WiFiClientSecure client;
+UniversalTelegramBot bot(BOT_TOKEN, client);
+
+// --- Callback for heartbeat detection ---
+void onBeatDetected() {
+  Serial.println("💓 Heartbeat detected");
+}
+
+
+
+void setup() {
+
+
+  // --- Serial setup ---
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("🔹 Starting Skin Condition Monitoring System");
+
+  // --- I2C setup ---
+  Wire.begin(21, 22);
+
+  // --- Connect WiFi ---
+  WiFi.begin(ssid, password);
+  Serial.print("🌐 Connecting to WiFi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n✅ WiFi connected");
+
+  client.setInsecure();
+
+// FIX 1: Move the server route to SETUP
+server.on("/data", HTTP_GET, [](AsyncWebServerRequest *request){
+  // We use the global variables here
+  String json = "{\"temperature\":" + String(skinTemp) + 
+                ",\"heart\":" + String(heartRate) + 
+                ",\"spo2\":" + String(spo2) + "}";
+  
+  AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
+  
+  // This tells the browser "It's safe to read this data"
+  response->addHeader("Access-Control-Allow-Origin", "*");
+  // This helps prevent the TCP crash by closing the connection immediately
+  response->addHeader("Connection", "close"); 
+  request->send(response);
+
+  });
+
+  
+
+ 
+  // --- Initialize MAX30100 ---
+  if (!pox.begin()) {
+    Serial.println("❌ MAX30100 initialization FAILED");
+    while (1);
+  }
+
+  pox.setIRLedCurrent(MAX30100_LED_CURR_24MA);
+  pox.setOnBeatDetectedCallback(onBeatDetected);
+
+  // --- Initialize MLX90614 ---
+  Wire.setClock(100000);
+  if (!mlx.begin()) {
+    Serial.println("❌ MLX90614 initialization FAILED");
+    while (1);
+  }
+
+  Serial.println("✅ Sensors initialized successfully");
+  Serial.println("-------------------------------");
+  Serial.println("✅ Web Server Started");
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+  request->send_P(200, "text/html", index_html);
+    });
+  server.begin();
+
+}
+
+void loop() {
+
+  // --- Update MAX30100 sensor readings ---
+  pox.update();
+
+  // --- Check if it's time to report ---
+  if (millis() - lastReportTime > REPORTING_PERIOD_MS) {
+
+     skinTemp = mlx.readObjectTempC();
+     heartRate = pox.getHeartRate();
+     spo2 = pox.getSpO2();
+
+    // --- Serial debug output ---
+    Serial.println("📊 Sensor Readings:");
+    Serial.print(" Skin Temp (°C): ");
+    Serial.println(skinTemp);
+
+    Serial.print(" Heart Rate (bpm): ");
+    Serial.println(heartRate);
+
+    Serial.print(" SpO2 (%): ");
+    Serial.println(spo2);
+
+    // --- Finger detection ---
+    if (heartRate == 0 || spo2 == 0) {
+      Serial.println("⚠️ No finger detected on MAX30100");
+      Serial.println("-------------------------------");
+      lastReportTime = millis();
+      return;
+    }
+    // --- Evaluate condition ---
+    String condition = "Normal";
+
+    if (skinTemp > 37.5) {
+      condition = "High Skin Temperature";
+      return;
+    }
+
+    if (heartRate > 120) {
+      condition = "High Heart Rate";
+      return;
+    }
+
+    if (spo2 < 94) {
+      condition = "Low Oxygen Level";
+      return;
+    }
+
+    Serial.print("🔹 Condition: ");
+    Serial.println(condition);
+    Serial.println("-------------------------------");
+    // --- Send data to Node-RED ---
+    if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    // Prepare JSON
+    String jsonData = "{\"temperature\":";
+    jsonData += skinTemp;
+    jsonData += ",\"heart\":";
+    jsonData += heartRate;
+    jsonData += ",\"spo2\":";
+    jsonData += spo2;
+    jsonData += "}";
+
+    // Send POST request
+    http.begin(serverName);
+    http.addHeader("Content-Type", "application/json");
+    int httpResponseCode = http.POST(jsonData);
+
+    if(httpResponseCode > 0){
+        Serial.print("📨 Node-RED POST Response: ");
+        Serial.println(httpResponseCode);
+    } else {
+        Serial.print("❌ Node-RED POST Error: ");
+        Serial.println(httpResponseCode);
+    }
+
+    http.end();
+}
+
+
+
+  // --- Send Telegram alert if abnormal ---
+if (condition != "Normal") {
+    String message = "⚠️ Health Alert\n";
+    message += "Temp: " + String(skinTemp) + " °C\n";
+    message += "Heart Rate: " + String(heartRate) + " bpm\n";
+    message += "SpO2: " + String(spo2) + " %\n";
+    message += "Condition: " + condition;
+
+    Serial.println("📨 Sending Telegram alert...");
+    Serial.println("Chat ID: " + String(CHAT_ID));
+    Serial.println("Message: " + message);
+    
+    bool result = bot.sendMessage(CHAT_ID, message, "");
+    
+    Serial.print("Result: ");
+    Serial.println(result ? "SUCCESS" : "FAILED");
+    }
+    
+
+
+    lastReportTime = millis();
+  }
+}
