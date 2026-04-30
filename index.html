@@ -8,6 +8,11 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
+html, body {
+    height: 100%;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    
 body {
     margin: 0;
     font-family: "Segoe UI", Arial, sans-serif;
@@ -99,15 +104,38 @@ canvas {
 }
 
 @media (max-width: 900px) {
+
     .container {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr; /* 1 column phone layout */
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .box {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    .value {
+        font-size: 26px;
+    }
+
+    h3 {
+        font-size: 12px;
+    }
+
+    canvas {
+        height: 140px !important; /* smaller charts for phone */
     }
 }
+
 </style>
 </head>
 
 <body>
-
+body {
+    -webkit-tap-highlight-color: transparent;
+}
 <!-- LOGIN -->
 <div id="loginPage">
     <div class="login-box">
