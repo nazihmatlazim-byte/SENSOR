@@ -43,6 +43,7 @@ body {
     border: 1px solid rgba(255,255,255,0.08);
 }
 
+/* INPUT */
 input {
     width: 90%;
     padding: 10px;
@@ -53,6 +54,7 @@ input {
     color: white;
 }
 
+/* BUTTON */
 button {
     width: 95%;
     padding: 10px;
@@ -87,31 +89,29 @@ button {
     box-shadow: 0 10px 25px rgba(0,0,0,0.35);
 }
 
-/* TITLE */
+/* TEXT */
 h3 {
     margin: 5px 0;
     font-size: 13px;
     color: #9ca3af;
 }
 
-/* VALUE */
 .value {
     font-size: 30px;
     font-weight: 700;
 }
 
-/* CONDITION */
 .condition {
     font-size: 12px;
     margin-bottom: 6px;
     color: #9ca3af;
 }
 
-/* SKIN STATUS */
+/* SYSTEM BOX */
 #systemCondition {
-    font-size: 30px;
+    font-size: 32px;
     font-weight: 900;
-    margin-top: 10px;
+    margin-top: 5px;
 }
 
 /* CANVAS */
@@ -120,7 +120,7 @@ canvas {
     height: 180px !important;
 }
 
-/* BAR */
+/* BAR FULL */
 .bar-box {
     grid-column: span 3;
 }
@@ -162,9 +162,9 @@ canvas {
 
 <div class="container">
 
-    <!-- HEART (stress indicator) -->
+    <!-- HEART -->
     <div class="box">
-        <h3>❤️ Stress Indicator (Heart Rate)</h3>
+        <h3>❤️ Stress Indicator</h3>
         <div class="value" id="heartValue">--</div>
         <div class="condition" id="heartCondition">Condition: --</div>
         <canvas id="heartChart"></canvas>
@@ -180,7 +180,7 @@ canvas {
         <canvas id="spo2Gauge"></canvas>
     </div>
 
-    <!-- SKIN TEMP -->
+    <!-- TEMP -->
     <div class="box">
         <h3>🌡️ Skin Temperature</h3>
         <div class="value" id="tempValue">--</div>
@@ -195,10 +195,11 @@ canvas {
         <canvas id="barChart"></canvas>
     </div>
 
-    <!-- SKIN CONDITION SUMMARY -->
+    <!-- 🧴 SYSTEM CONDITION (VALUE BOX VERSION) -->
     <div class="box bar-box">
         <h3>🧴 Skin Condition Analysis</h3>
-        <div id="systemCondition">--</div>
+        <div class="condition">Overall Skin Status</div>
+        <div class="value" id="systemCondition">--</div>
     </div>
 
 </div>
@@ -229,7 +230,7 @@ let tempData = [];
 
 const ESP32_IP = "http://172.24.173.161/data";
 
-/* CHARTS */
+/* LINE */
 function createLine(ctx, color, data) {
     return new Chart(ctx, {
         type: 'line',
@@ -253,6 +254,7 @@ function createLine(ctx, color, data) {
     });
 }
 
+/* GAUGE */
 function createGauge(ctx, color) {
     return new Chart(ctx, {
         type: 'doughnut',
@@ -321,12 +323,12 @@ function initCharts() {
 /* SKIN LOGIC */
 function getSkinCondition(h, s, t) {
 
-    if (t >= 38) return "🔥 Skin Inflamed / Irritated";
-    if (t <= 32) return "❄️ Dry / Poor Skin Circulation";
+    if (t >= 38) return "🔥 Inflamed Skin";
+    if (t <= 32) return "❄️ Dry / Poor Circulation";
     if (s < 92) return "⚠️ Low Skin Perfusion";
-    if (h > 110) return "😟 Stress Affecting Skin";
+    if (h > 110) return "😟 Stress Impacted Skin";
 
-    return "✅ Healthy Skin Condition";
+    return "✅ Healthy Skin";
 }
 
 /* FETCH */
