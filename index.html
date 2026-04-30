@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>ESP32 Medical Dashboard</title>
+<title>ESP32 Skin Monitoring Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -19,7 +19,6 @@ body {
     font-family: "Segoe UI", Arial, sans-serif;
     background: radial-gradient(circle at top, #111827, #0b0c10);
     color: #e5e7eb;
-    -webkit-tap-highlight-color: transparent;
 }
 
 /* LOGIN */
@@ -42,7 +41,6 @@ body {
     width: 280px;
     text-align: center;
     border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
 }
 
 input {
@@ -87,29 +85,33 @@ button {
     text-align: center;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 10px 25px rgba(0,0,0,0.35);
-    transition: 0.25s;
 }
 
-.box:hover {
-    transform: translateY(-3px);
-}
-
+/* TITLE */
 h3 {
     margin: 5px 0;
     font-size: 13px;
     color: #9ca3af;
 }
 
+/* VALUE */
 .value {
     font-size: 30px;
     font-weight: 700;
 }
 
-/* CONDITION TAG */
+/* CONDITION */
 .condition {
     font-size: 12px;
     margin-bottom: 6px;
     color: #9ca3af;
+}
+
+/* SKIN STATUS */
+#systemCondition {
+    font-size: 30px;
+    font-weight: 900;
+    margin-top: 10px;
 }
 
 /* CANVAS */
@@ -118,12 +120,12 @@ canvas {
     height: 180px !important;
 }
 
-/* BAR FULL WIDTH */
+/* BAR */
 .bar-box {
     grid-column: span 3;
 }
 
-/* RESPONSIVE PHONE */
+/* MOBILE */
 @media (max-width: 900px) {
     .container {
         grid-template-columns: 1fr;
@@ -147,7 +149,7 @@ canvas {
 <!-- LOGIN -->
 <div id="loginPage">
     <div class="login-box">
-        <h2>Login</h2>
+        <h2>Skin Monitor Login</h2>
         <input type="text" id="user" placeholder="Username">
         <input type="password" id="pass" placeholder="Password">
         <button onclick="login()">Login</button>
@@ -160,9 +162,9 @@ canvas {
 
 <div class="container">
 
-    <!-- HEART -->
+    <!-- HEART (stress indicator) -->
     <div class="box">
-        <h3>🫀 Heart Rate</h3>
+        <h3>❤️ Stress Indicator (Heart Rate)</h3>
         <div class="value" id="heartValue">--</div>
         <div class="condition" id="heartCondition">Condition: --</div>
         <canvas id="heartChart"></canvas>
@@ -171,16 +173,16 @@ canvas {
 
     <!-- SPO2 -->
     <div class="box">
-        <h3>🩸 Oxygen Level</h3>
+        <h3>🩸 Skin Oxygen / Perfusion</h3>
         <div class="value" id="spo2Value">--</div>
         <div class="condition" id="spo2Condition">Condition: --</div>
         <canvas id="spo2Chart"></canvas>
         <canvas id="spo2Gauge"></canvas>
     </div>
 
-    <!-- TEMP -->
+    <!-- SKIN TEMP -->
     <div class="box">
-        <h3>🌡️ Temperature</h3>
+        <h3>🌡️ Skin Temperature</h3>
         <div class="value" id="tempValue">--</div>
         <div class="condition" id="tempCondition">Condition: --</div>
         <canvas id="tempChart"></canvas>
@@ -189,8 +191,14 @@ canvas {
 
     <!-- BAR -->
     <div class="box bar-box">
-        <h3>📊 Live Sensor Bar History</h3>
+        <h3>📊 Skin Sensor History</h3>
         <canvas id="barChart"></canvas>
+    </div>
+
+    <!-- SKIN CONDITION SUMMARY -->
+    <div class="box bar-box">
+        <h3>🧴 Skin Condition Analysis</h3>
+        <div id="systemCondition">--</div>
     </div>
 
 </div>
@@ -221,7 +229,7 @@ let tempData = [];
 
 const ESP32_IP = "http://172.24.173.161/data";
 
-/* LINE */
+/* CHARTS */
 function createLine(ctx, color, data) {
     return new Chart(ctx, {
         type: 'line',
@@ -245,7 +253,6 @@ function createLine(ctx, color, data) {
     });
 }
 
-/* GAUGE */
 function createGauge(ctx, color) {
     return new Chart(ctx, {
         type: 'doughnut',
@@ -276,9 +283,9 @@ function createBarChart() {
         data: {
             labels: [],
             datasets: [
-                { label: "Heart 🫀", backgroundColor: "#4caf50", data: [] },
-                { label: "SpO2 🩸", backgroundColor: "#2196f3", data: [] },
-                { label: "Temp 🌡️", backgroundColor: "#ff5252", data: [] }
+                { label: "Stress", backgroundColor: "#4caf50", data: [] },
+                { label: "Oxygen", backgroundColor: "#2196f3", data: [] },
+                { label: "Temp", backgroundColor: "#ff5252", data: [] }
             ]
         },
         options: {
@@ -311,11 +318,15 @@ function initCharts() {
     createBarChart();
 }
 
-/* CONDITION LOGIC */
-function getCondition(h, s, t) {
-    if (h > 120 || s < 92 || t > 38) return "CRITICAL";
-    if (h > 100 || s < 95 || t > 37) return "WARNING";
-    return "NORMAL";
+/* SKIN LOGIC */
+function getSkinCondition(h, s, t) {
+
+    if (t >= 38) return "🔥 Skin Inflamed / Irritated";
+    if (t <= 32) return "❄️ Dry / Poor Skin Circulation";
+    if (s < 92) return "⚠️ Low Skin Perfusion";
+    if (h > 110) return "😟 Stress Affecting Skin";
+
+    return "✅ Healthy Skin Condition";
 }
 
 /* FETCH */
@@ -328,15 +339,22 @@ async function fetchData() {
         let s = d.spo2 || 0;
         let t = d.temperature || 0;
 
-        let c = d.condition || getCondition(h, s, t);
+        let skin = d.condition || getSkinCondition(h, s, t);
 
         document.getElementById("heartValue").innerText = h + " bpm";
         document.getElementById("spo2Value").innerText = s + " %";
         document.getElementById("tempValue").innerText = t + " °C";
 
-        document.getElementById("heartCondition").innerText = "Condition: " + c;
-        document.getElementById("spo2Condition").innerText = "Condition: " + c;
-        document.getElementById("tempCondition").innerText = "Condition: " + c;
+        document.getElementById("heartCondition").innerText = "Condition: " + skin;
+        document.getElementById("spo2Condition").innerText = "Condition: " + skin;
+        document.getElementById("tempCondition").innerText = "Condition: " + skin;
+
+        let sys = document.getElementById("systemCondition");
+        sys.innerText = skin;
+
+        if (skin.includes("Inflamed")) sys.style.color = "#ff3b30";
+        else if (skin.includes("Dry") || skin.includes("Low")) sys.style.color = "#ffcc00";
+        else sys.style.color = "#22c55e";
 
         if (labels.length > 25) {
             labels.shift();
