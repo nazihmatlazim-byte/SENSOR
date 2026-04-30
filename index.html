@@ -12,12 +12,14 @@ html, body {
     height: 100%;
     overflow-x: hidden;
     -webkit-text-size-adjust: 100%;
-    
+}
+
 body {
     margin: 0;
     font-family: "Segoe UI", Arial, sans-serif;
     background: radial-gradient(circle at top, #111827, #0b0c10);
     color: #e5e7eb;
+    -webkit-tap-highlight-color: transparent;
 }
 
 /* LOGIN */
@@ -76,6 +78,7 @@ button {
     padding: 22px;
 }
 
+/* GLASS BOX */
 .box {
     background: rgba(255,255,255,0.06);
     backdrop-filter: blur(14px);
@@ -84,6 +87,11 @@ button {
     text-align: center;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+    transition: 0.25s;
+}
+
+.box:hover {
+    transform: translateY(-3px);
 }
 
 h3 {
@@ -97,45 +105,45 @@ h3 {
     font-weight: 700;
 }
 
-/* FIX CANVAS */
+/* CONDITION TAG */
+.condition {
+    font-size: 12px;
+    margin-bottom: 6px;
+    color: #9ca3af;
+}
+
+/* CANVAS */
 canvas {
     width: 100% !important;
     height: 180px !important;
 }
 
-@media (max-width: 900px) {
+/* BAR FULL WIDTH */
+.bar-box {
+    grid-column: span 3;
+}
 
+/* RESPONSIVE PHONE */
+@media (max-width: 900px) {
     .container {
-        grid-template-columns: 1fr; /* 1 column phone layout */
+        grid-template-columns: 1fr;
         padding: 12px;
         gap: 12px;
     }
 
-    .box {
-        padding: 14px;
-        border-radius: 14px;
+    canvas {
+        height: 140px !important;
     }
 
     .value {
         font-size: 26px;
     }
-
-    h3 {
-        font-size: 12px;
-    }
-
-    canvas {
-        height: 140px !important; /* smaller charts for phone */
-    }
 }
-
 </style>
 </head>
 
 <body>
-body {
-    -webkit-tap-highlight-color: transparent;
-}
+
 <!-- LOGIN -->
 <div id="loginPage">
     <div class="login-box">
@@ -152,28 +160,35 @@ body {
 
 <div class="container">
 
+    <!-- HEART -->
     <div class="box">
         <h3>🫀 Heart Rate</h3>
         <div class="value" id="heartValue">--</div>
+        <div class="condition" id="heartCondition">Condition: --</div>
         <canvas id="heartChart"></canvas>
         <canvas id="heartGauge"></canvas>
     </div>
 
+    <!-- SPO2 -->
     <div class="box">
         <h3>🩸 Oxygen Level</h3>
         <div class="value" id="spo2Value">--</div>
+        <div class="condition" id="spo2Condition">Condition: --</div>
         <canvas id="spo2Chart"></canvas>
         <canvas id="spo2Gauge"></canvas>
     </div>
 
+    <!-- TEMP -->
     <div class="box">
         <h3>🌡️ Temperature</h3>
         <div class="value" id="tempValue">--</div>
+        <div class="condition" id="tempCondition">Condition: --</div>
         <canvas id="tempChart"></canvas>
         <canvas id="tempGauge"></canvas>
     </div>
 
-    <div class="box" style="grid-column: span 3;">
+    <!-- BAR -->
+    <div class="box bar-box">
         <h3>📊 Live Sensor Bar History</h3>
         <canvas id="barChart"></canvas>
     </div>
@@ -206,7 +221,7 @@ let tempData = [];
 
 const ESP32_IP = "http://172.24.173.161/data";
 
-/* LINE CHART */
+/* LINE */
 function createLine(ctx, color, data) {
     return new Chart(ctx, {
         type: 'line',
@@ -223,7 +238,7 @@ function createLine(ctx, color, data) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,   // ✅ FIX HERE
+            maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: { x: { display: false } }
         }
@@ -243,7 +258,7 @@ function createGauge(ctx, color) {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,   // ✅ FIX HERE
+            maintainAspectRatio: false,
             rotation: -90,
             circumference: 180,
             cutout: '70%',
@@ -268,7 +283,7 @@ function createBarChart() {
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,   // ✅ FIX HERE
+            maintainAspectRatio: false,
             plugins: {
                 legend: { labels: { color: "#e5e7eb" } }
             },
@@ -296,6 +311,13 @@ function initCharts() {
     createBarChart();
 }
 
+/* CONDITION LOGIC */
+function getCondition(h, s, t) {
+    if (h > 120 || s < 92 || t > 38) return "CRITICAL";
+    if (h > 100 || s < 95 || t > 37) return "WARNING";
+    return "NORMAL";
+}
+
 /* FETCH */
 async function fetchData() {
     try {
@@ -306,9 +328,15 @@ async function fetchData() {
         let s = d.spo2 || 0;
         let t = d.temperature || 0;
 
+        let c = d.condition || getCondition(h, s, t);
+
         document.getElementById("heartValue").innerText = h + " bpm";
         document.getElementById("spo2Value").innerText = s + " %";
         document.getElementById("tempValue").innerText = t + " °C";
+
+        document.getElementById("heartCondition").innerText = "Condition: " + c;
+        document.getElementById("spo2Condition").innerText = "Condition: " + c;
+        document.getElementById("tempCondition").innerText = "Condition: " + c;
 
         if (labels.length > 25) {
             labels.shift();
