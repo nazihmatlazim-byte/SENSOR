@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ESP32 Medical Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: radial-gradient(circle at top, #111827, #0b0c10);
+    color: #e5e7eb;
+}
+
+/* LOGIN */
+#loginPage {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at top, #111827, #0b0c10);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10;
+}
+
+.login-box {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(12px);
+    padding: 28px;
+    border-radius: 16px;
+    width: 280px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}
+
+input {
+    width: 90%;
+    padding: 10px;
+    margin: 8px 0;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    color: white;
+}
+
+button {
+    width: 95%;
+    padding: 10px;
+    margin-top: 10px;
+    background: linear-gradient(135deg, #4caf50, #22c55e);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* DASHBOARD */
+#dashboard {
+    display: none;
+}
+
+.container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    padding: 22px;
+}
+
+.box {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(14px);
+    padding: 16px;
+    border-radius: 16px;
+    text-align: center;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 10px 25px rgba(0,0,0,0.35);
+}
+
+h3 {
+    margin: 5px 0;
+    font-size: 13px;
+    color: #9ca3af;
+}
+
+.value {
+    font-size: 30px;
+    font-weight: 700;
+}
+
+/* FIX CANVAS */
+canvas {
+    width: 100% !important;
+    height: 180px !important;
+}
+
+@media (max-width: 900px) {
+    .container {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="loginPage">
+    <div class="login-box">
+        <h2>Login</h2>
+        <input type="text" id="user" placeholder="Username">
+        <input type="password" id="pass" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <p id="msg" style="color:red;"></p>
+    </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+
+<div class="container">
+
+    <div class="box">
+        <h3>🫀 Heart Rate</h3>
+        <div class="value" id="heartValue">--</div>
+        <canvas id="heartChart"></canvas>
+        <canvas id="heartGauge"></canvas>
+    </div>
+
+    <div class="box">
+        <h3>🩸 Oxygen Level</h3>
+        <div class="value" id="spo2Value">--</div>
+        <canvas id="spo2Chart"></canvas>
+        <canvas id="spo2Gauge"></canvas>
+    </div>
+
+    <div class="box">
+        <h3>🌡️ Temperature</h3>
+        <div class="value" id="tempValue">--</div>
+        <canvas id="tempChart"></canvas>
+        <canvas id="tempGauge"></canvas>
+    </div>
+
+    <div class="box" style="grid-column: span 3;">
+        <h3>📊 Live Sensor Bar History</h3>
+        <canvas id="barChart"></canvas>
+    </div>
+
+</div>
+
+</div>
+
+<script>
+
+/* LOGIN */
+function login() {
+    let u = document.getElementById("user").value;
+    let p = document.getElementById("pass").value;
+
+    if (u === "admin" && p === "1234") {
+        document.getElementById("loginPage").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+        startDashboard();
+    } else {
+        document.getElementById("msg").innerText = "Wrong username/password";
+    }
+}
+
+/* DATA */
+let labels = [];
+let heartData = [];
+let spo2Data = [];
+let tempData = [];
+
+const ESP32_IP = "http://172.24.173.161/data";
+
+/* LINE CHART */
+function createLine(ctx, color, data) {
+    return new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                borderColor: color,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.4,
+                fill: false
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,   // ✅ FIX HERE
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false } }
+        }
+    });
+}
+
+/* GAUGE */
+function createGauge(ctx, color) {
+    return new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            datasets: [{
+                data: [50, 50],
+                backgroundColor: [color, "#333"],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,   // ✅ FIX HERE
+            rotation: -90,
+            circumference: 180,
+            cutout: '70%',
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+/* BAR */
+let barChart;
+
+function createBarChart() {
+    barChart = new Chart(document.getElementById("barChart"), {
+        type: 'bar',
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Heart 🫀", backgroundColor: "#4caf50", data: [] },
+                { label: "SpO2 🩸", backgroundColor: "#2196f3", data: [] },
+                { label: "Temp 🌡️", backgroundColor: "#ff5252", data: [] }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,   // ✅ FIX HERE
+            plugins: {
+                legend: { labels: { color: "#e5e7eb" } }
+            },
+            scales: {
+                x: { ticks: { color: "#9ca3af" } },
+                y: { ticks: { color: "#9ca3af" } }
+            }
+        }
+    });
+}
+
+/* INIT */
+let heartChart, spo2Chart, tempChart;
+let heartGauge, spo2Gauge, tempGauge;
+
+function initCharts() {
+    heartChart = createLine(document.getElementById("heartChart"), "#4caf50", heartData);
+    spo2Chart = createLine(document.getElementById("spo2Chart"), "#2196f3", spo2Data);
+    tempChart = createLine(document.getElementById("tempChart"), "#ff5252", tempData);
+
+    heartGauge = createGauge(document.getElementById("heartGauge"), "#4caf50");
+    spo2Gauge = createGauge(document.getElementById("spo2Gauge"), "#2196f3");
+    tempGauge = createGauge(document.getElementById("tempGauge"), "#ff5252");
+
+    createBarChart();
+}
+
+/* FETCH */
+async function fetchData() {
+    try {
+        const res = await fetch(ESP32_IP);
+        const d = await res.json();
+
+        let h = d.heart || 0;
+        let s = d.spo2 || 0;
+        let t = d.temperature || 0;
+
+        document.getElementById("heartValue").innerText = h + " bpm";
+        document.getElementById("spo2Value").innerText = s + " %";
+        document.getElementById("tempValue").innerText = t + " °C";
+
+        if (labels.length > 25) {
+            labels.shift();
+            heartData.shift();
+            spo2Data.shift();
+            tempData.shift();
+        }
+
+        labels.push("");
+        heartData.push(h);
+        spo2Data.push(s);
+        tempData.push(t);
+
+        heartChart.update();
+        spo2Chart.update();
+        tempChart.update();
+
+        heartGauge.data.datasets[0].data = [h, 150 - h];
+        spo2Gauge.data.datasets[0].data = [s, 100 - s];
+        tempGauge.data.datasets[0].data = [t, 60 - t];
+
+        heartGauge.update();
+        spo2Gauge.update();
+        tempGauge.update();
+
+        if (barChart.data.labels.length > 10) {
+            barChart.data.labels.shift();
+            barChart.data.datasets.forEach(d => d.data.shift());
+        }
+
+        barChart.data.labels.push("");
+        barChart.data.datasets[0].data.push(h);
+        barChart.data.datasets[1].data.push(s);
+        barChart.data.datasets[2].data.push(t);
+
+        barChart.update();
+
+    } catch (e) {
+        console.log("ESP32 disconnected");
+    }
+}
+
+/* START */
+function startDashboard() {
+    initCharts();
+    setInterval(fetchData, 2000);
+}
+
+</script>
+
+</body>
+</html>
